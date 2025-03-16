@@ -41,10 +41,13 @@
       <change afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch90_idx0.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch90_idx1.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch90_idx2.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_sample_4.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/handwritten_sample_3.jpg" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/handwritten_sample_4.jpg" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/handwritting_ttf.py" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/impementation.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/output.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/segmented_letters/images/letter_0_!_.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/segmented_letters/images/letter_10_C_.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/segmented_letters/images/letter_11_D_.png" afterDir="false" />
@@ -103,6 +106,7 @@
       <change afterPath="$PROJECT_DIR$/segmented_letters/images/letter_6_;_.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/segmented_letters/images/letter_8_A_.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/segmented_letters/images/letter_9_B_.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/temp.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/char_seg.py" beforeDir="false" afterPath="$PROJECT_DIR$/char_seg.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/model.py" beforeDir="false" afterPath="$PROJECT_DIR$/model.py" afterDir="false" />
@@ -258,7 +262,15 @@
       <option name="project" value="LOCAL" />
       <updated>1741529159469</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="recent commit">
+      <option name="closed" value="true" />
+      <created>1742135512273</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1742135512273</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
