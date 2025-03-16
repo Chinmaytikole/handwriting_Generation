@@ -415,7 +415,7 @@ def generate_handwritten_text(generator, ttf_path, text, output_path, spacing_fa
         # Crop the character image to its bounding box
         char_img = Image.fromarray(img_array.astype(np.uint8)).crop((left, top, right, bottom))
 
-        # Calculate vertical centering
+        # Calculate vertical centeringA
         y_offset = (max_height - char_height) // 2
 
         # Paste at current offset with vertical centering
@@ -431,6 +431,70 @@ def generate_handwritten_text(generator, ttf_path, text, output_path, spacing_fa
 
     return combined_img
 
+
+def remove_connecting_lines(img_array, threshold=240, min_length=5, max_thickness=5):
+    """
+    Enhanced version to more aggressively remove connecting lines between characters
+    """
+    height, width = img_array.shape
+    result = img_array.copy()
+
+    # Make binary image for line detection
+    binary = (img_array < threshold).astype(np.uint8)
+
+    # Scan through rows looking for horizontal lines
+    for y in range(height):
+        # Count continuous runs of dark pixels in this row
+        run_lengths = []
+        in_run = False
+        run_length = 0
+        run_start = 0
+
+        for x in range(width):
+            if binary[y, x] == 1:  # Dark pixel
+                if not in_run:
+                    in_run = True
+                    run_length = 1
+                    run_start = x
+                else:
+                    run_length += 1
+            else:  # Light pixel
+                if in_run:
+                    in_run = False
+                    if run_length >= min_length:
+                        run_lengths.append((run_start, run_length))
+                    run_length = 0
+
+        # Don't forget the last run
+        if in_run and run_length >= min_length:
+            run_lengths.append((run_start, run_length))
+
+        # For each horizontal run, check if it's likely a connecting line
+        for run_start, run_length in run_lengths:
+            # Check thickness by looking at rows above and below
+            is_thin_line = True
+
+            # Check rows above and below to see if this is an isolated line
+            for t in range(1, max_thickness + 1):
+                if y - t >= 0:
+                    # Check if pixels above are mostly white
+                    pixels_above = binary[y - t, run_start:run_start + run_length]
+                    if np.sum(pixels_above) > run_length * 0.3:  # More than 30% dark pixels above
+                        is_thin_line = False
+                        break
+
+                if y + t < height:
+                    # Check if pixels below are mostly white
+                    pixels_below = binary[y + t, run_start:run_start + run_length]
+                    if np.sum(pixels_below) > run_length * 0.3:  # More than 30% dark pixels below
+                        is_thin_line = False
+                        break
+
+            # If it's a thin isolated line, remove it
+            if is_thin_line:
+                result[y, run_start:run_start + run_length] = 255
+
+    return result
 
 # Main function to run the complete process
 def main(ttf_path, text_to_generate, real_samples_dir=None, num_epochs=100, spacing_factor=0.2):
@@ -457,6 +521,6 @@ if __name__ == "__main__":
     ttf_path = "Myfont-Regular.ttf"  # Put your TTF file path here
     text_to_generate = "Hello World"
     real_samples_dir = None  # Optional: folder with real handwriting samples
-    spacing_factor = 0.2  # Adjust this value to control spacing (lower = less space)
+    spacing_factor = 0.8  # Adjust this value to control spacing (lower = less space)
 
     main(ttf_path, text_to_generate, real_samples_dir, num_epochs=100, spacing_factor=spacing_factor)
