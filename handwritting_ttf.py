@@ -389,10 +389,10 @@ def train_handwriting_gan(ttf_path, real_samples_dir=None, output_dir="output", 
         print(f"[Epoch {epoch}/{num_epochs}] [Avg G loss: {avg_loss_G:.4f}] [Avg D loss: {avg_loss_D:.4f}]")
 
         # Save model checkpoints
-        if epoch % 10 == 0 or epoch == num_epochs - 1:
-            torch.save(generator.state_dict(), os.path.join(output_dir, f"generator_epoch_{epoch}.pth"))
-            torch.save(discriminator.state_dict(), os.path.join(output_dir, f"discriminator_epoch_{epoch}.pth"))
-
+        # Only save the final model after training is complete
+        if epoch == num_epochs - 1:
+            torch.save(generator.state_dict(), os.path.join(output_dir, "generator_final.pth"))
+            torch.save(discriminator.state_dict(), os.path.join(output_dir, "discriminator_final.pth"))
         # Save sample images
         if epoch % 5 == 0 or epoch == num_epochs - 1:
             with torch.no_grad():
@@ -663,7 +663,7 @@ def main():
     # Generate handwriting from a sample text
     print("Generating handwriting sample...")
     sample_text = "Hello World!"
-    model_path = os.path.join(output_dir, "generator_epoch_99.pth")
+    model_path = os.path.join(output_dir, "generator_final.pth")
 
     # Call the functions directly, not as methods of train_handwriting_gan
     handwritten_text_path = generate_handwriting(sample_text, ttf_path, model_path, output_dir)

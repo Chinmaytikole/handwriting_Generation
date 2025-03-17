@@ -340,9 +340,9 @@ if __name__ == "__main__":
     # Your specific parameters
     generator_path = "handwriting_gan_output/generator.pth"
     font_path = "Myfont-Regular.ttf"
-    text = "Hello My fuckin Friend"
+    text = "Hello how You Doin"
     output_path = "improved_hello_world.png"
-    spacing = -0.83  # Character spacing within words
+    spacing = -0.82  # Character spacing within words
     top_crop = 20
     remove_lines = True
     line_threshold = 240
