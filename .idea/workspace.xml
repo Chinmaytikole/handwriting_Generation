@@ -5,13 +5,78 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="38785c3e-deab-4b35-a327-a6a7dd044e48" name="Changes" comment="recent commit">
-      <change afterPath="$PROJECT_DIR$/handwritten_text_on_lined_paper.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/img.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/improved_hello.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/improved_hello_world.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_0.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_10.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_20.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_30.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_40.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_50.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_60.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_70.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_80.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_90.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/discriminator_epoch_99.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_0.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_10.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_20.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_30.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_40.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_50.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_60.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_70.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_80.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_90.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/generator_epoch_99.pth" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_0.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_10.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_15.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_20.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_25.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_30.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_35.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_40.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_45.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_5.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_50.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_55.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_60.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_65.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_70.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_75.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_80.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_85.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_90.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_95.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/handwriting_gan_output/samples_epoch_99.png" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch10_idx0.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch10_idx0.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch10_idx1.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch10_idx1.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch10_idx2.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch10_idx2.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch20_idx0.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch20_idx0.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch20_idx1.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch20_idx1.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch20_idx2.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch20_idx2.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch30_idx0.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch30_idx0.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch30_idx1.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch30_idx1.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch30_idx2.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch30_idx2.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch40_idx0.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch40_idx0.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch40_idx1.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch40_idx1.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch40_idx2.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch40_idx2.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch50_idx0.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch50_idx0.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch50_idx1.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch50_idx1.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch50_idx2.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch50_idx2.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch60_idx0.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch60_idx0.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch60_idx1.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch60_idx1.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch60_idx2.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch60_idx2.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch70_idx0.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch70_idx0.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch70_idx1.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch70_idx1.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch70_idx2.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch70_idx2.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch80_idx0.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch80_idx0.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch80_idx1.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch80_idx1.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch80_idx2.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwriting_gan_output/sample_epoch80_idx2.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handwritten_text_on_lined_paper.png" beforeDir="false" afterPath="$PROJECT_DIR$/handwritten_text_on_lined_paper.png" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/handwritting_ttf.py" beforeDir="false" afterPath="$PROJECT_DIR$/handwritting_ttf.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/impementation.py" beforeDir="false" afterPath="$PROJECT_DIR$/impementation.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/improved_hello_world.png" beforeDir="false" afterPath="$PROJECT_DIR$/improved_hello_world.png" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -70,7 +135,7 @@
       <recent name="C:\Users\chinm\PycharmProjects\handwriting_Generation" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.impementation">
+  <component name="RunManager" selected="Python.handwritting_ttf">
     <configuration name="char_seg" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="handwriting_Generation" />
       <option name="ENV_FILES" value="" />
@@ -139,8 +204,8 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.impementation" />
         <item itemvalue="Python.handwritting_ttf" />
+        <item itemvalue="Python.impementation" />
         <item itemvalue="Python.char_seg" />
         <item itemvalue="Python.impementation" />
         <item itemvalue="Python.handwritting_ttf" />
@@ -187,7 +252,15 @@
       <option name="project" value="LOCAL" />
       <updated>1742135543775</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="recent commit">
+      <option name="closed" value="true" />
+      <created>1742140788530</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1742140788530</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
