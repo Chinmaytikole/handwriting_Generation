@@ -1,0 +1,2 @@
+Average MSE: 0.9490
+Average MAE: 0.9583

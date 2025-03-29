@@ -24,30 +24,36 @@ os.makedirs(detected_words_dir, exist_ok=True)
 # Process each cropped region
 word_count = 0  # Counter for unique word filenames
 for i in range(32):
-    cropped_img = gray_image[start_point[1]:end_point[1], start_point[0]:end_point[0]]
+    cropped_img = gray_image[start_point[1]+10:end_point[1]-10, start_point[0]:end_point[0]]
     if cropped_img.size == 0:
         continue
 
+    # Resize cropped image to maintain aspect ratio with height 89
+    aspect_ratio = cropped_img.shape[1] / cropped_img.shape[0]
+    new_width = int(200 * aspect_ratio)
+    resized_cropped_img = cv2.resize(cropped_img, (new_width, 200))
+
     # Save cropped image
     crop_filename = os.path.join(cropped_dir, f'cropped_{i}.jpg')
-    cv2.imwrite(crop_filename, cropped_img)
+    cv2.imwrite(crop_filename, resized_cropped_img)
 
     # Prepare image for word detection
-    prepared_img = prepare_img(cropped_img, 50)
+    prepared_img = prepare_img(resized_cropped_img, 50)
 
     # Detect words
-    detections = detect(prepared_img, kernel_size=25, sigma=11, theta=7, min_area=3770)
+    detections = detect(prepared_img, kernel_size=21, sigma=9, theta=5, min_area=100)
     sorted_lines = sort_line(detections)
 
     # Save detected words with fixed height of 30 pixels in a single directory
     if sorted_lines and sorted_lines[0]:
         for j, word in enumerate(sorted_lines[0]):
-            resized_word = cv2.resize(word.img, (word.img.shape[1], 30))  # Keep width unchanged, set height to 30
+            word_aspect_ratio = word.img.shape[1] / word.img.shape[0]
+            # word_new_width = int(30 * word_aspect_ratio)
+            # resized_word = cv2.resize(word.img, (word_new_width, 30))  # Maintain aspect ratio with height 30
             word_filename = os.path.join(detected_words_dir, f'word_{word_count + 1}.jpg')
-            cv2.imwrite(word_filename, resized_word)
+            cv2.imwrite(word_filename, word.img)
             word_count += 1
 
     # Update cropping positions
     start_point[1] += 43
     end_point[1] += 43
-help(detect)
