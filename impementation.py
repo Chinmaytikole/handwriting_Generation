@@ -7,7 +7,7 @@ import numpy as np
 from torchvision import transforms
 
 
-# Define the Generator network (needs to match exactly what was used during training)
+# Generator network
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
@@ -28,6 +28,13 @@ class Generator(nn.Module):
         )
         self.down4 = nn.Sequential(
             nn.Conv2d(256, 512, 4, 2, 1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+
+        # Bottleneck layer
+        self.bottleneck = nn.Sequential(
+            nn.Conv2d(512, 512, 3, 1, 1),
             nn.BatchNorm2d(512),
             nn.LeakyReLU(0.2, inplace=True)
         )
@@ -53,18 +60,32 @@ class Generator(nn.Module):
             nn.Tanh()
         )
 
+        # Refine layer
+        self.refine = nn.Sequential(
+            nn.Conv2d(1, 16, 3, 1, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 1, 3, 1, 1),
+            nn.Sigmoid()
+        )
+
     def forward(self, x):
         d1 = self.down1(x)
         d2 = self.down2(d1)
         d3 = self.down3(d2)
         d4 = self.down4(d3)
 
-        u1 = self.up1(d4)
+        # Apply bottleneck
+        b = self.bottleneck(d4)
+
+        u1 = self.up1(b)
         u2 = self.up2(torch.cat([u1, d3], 1))
         u3 = self.up3(torch.cat([u2, d2], 1))
         u4 = self.up4(torch.cat([u3, d1], 1))
 
-        return u4
+        # Apply refine layer to the output
+        refined = self.refine(u4)
+
+        return refined
 
 
 # Function to remove thin horizontal lines that often connect characters
@@ -136,8 +157,8 @@ def remove_connecting_lines(img_array, threshold=245, min_length=10, max_thickne
     return result
 
 
-# Function to generate handwritten text using a pre-trained model
-def generate_handwritten_text(generator_path, ttf_path, text, output_path, spacing_factor=-0.3,
+# Function to generate handwritten text using a pre-trained model and input letter images
+def generate_handwritten_text(generator_path, input_letters_dir, text, output_path, spacing_factor=-0.3,
                               top_crop_percent=20, remove_lines=True, line_threshold=245):
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -149,14 +170,119 @@ def generate_handwritten_text(generator_path, ttf_path, text, output_path, spaci
     generator.eval()
     print(f"Generator model loaded from {generator_path}")
 
-    # Load font
-    try:
-        font = ImageFont.truetype(ttf_path, 64)
-        print(f"Font loaded from {ttf_path}")
-    except Exception as e:
-        print(f"Error loading font: {e}")
-        print("Using default font instead")
-        font = ImageFont.load_default()
+    # Ensure input letters directory exists
+    if not os.path.exists(input_letters_dir):
+        raise FileNotFoundError(f"Input letters directory not found: {input_letters_dir}")
+
+    print(f"Using input letters from: {input_letters_dir}")
+
+    # Define character order based on the provided information
+    char_order = ['!', '"', "'", ',', '.', 'col', ';', '?', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L',
+                  'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+                  'g', 'h', 'i', 'j',
+                  'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z']
+
+    # Special naming cases
+    special_cases = {
+        '?': 'letter_7_Quest_.png',
+        ':': 'letter_5_col_.png'
+    }
+
+    # Load input letter images based on the naming convention
+    letter_images = {}
+    valid_extensions = ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']
+
+    # First, try to load all files with the specific format or special cases
+    for i, char in enumerate(char_order):
+        # Handle special cases
+        if char == '?':
+            filename = special_cases['?']
+        elif char == 'col':
+            filename = special_cases.get(':', f"letter_{i}_col_.png")
+            char = ':'  # Map 'col' to ':' for the dictionary key
+        else:
+            filename = f"letter_{i}_{char}_.png"  # Regular format
+
+        file_path = os.path.join(input_letters_dir, filename)
+
+        if os.path.exists(file_path):
+            try:
+                img = Image.open(file_path).convert('L')  # Convert to grayscale
+                letter_images[char] = img
+                print(f"Loaded letter image for '{char}' from {filename}")
+            except Exception as e:
+                print(f"Error loading letter image '{file_path}': {e}")
+        else:
+            print(f"Warning: Image file not found for character '{char}' at path {file_path}")
+
+            # Try alternate filenames for this character
+            alternate_names = [
+                f"letter_{i}_{char}.png",
+                f"{char}.png"
+            ]
+
+            found = False
+            for alt_name in alternate_names:
+                alt_path = os.path.join(input_letters_dir, alt_name)
+                if os.path.exists(alt_path):
+                    try:
+                        img = Image.open(alt_path).convert('L')
+                        letter_images[char] = img
+                        found = True
+                        print(f"Loaded letter image for '{char}' from alternate file {alt_name}")
+                        break
+                    except Exception as e:
+                        print(f"Error loading alternate image '{alt_path}': {e}")
+
+            if not found:
+                print(f"No valid image found for character '{char}'")
+
+    # Fall back to scanning the directory for any remaining letters
+    print("Scanning directory for additional letter images...")
+    for filename in os.listdir(input_letters_dir):
+        file_path = os.path.join(input_letters_dir, filename)
+
+        # Skip directories and check if it's an image file
+        if os.path.isdir(file_path) or not any(filename.lower().endswith(ext) for ext in valid_extensions):
+            continue
+
+        # Try to extract character from the filename based on various patterns
+        if filename.startswith("letter_") and "_" in filename:
+            parts = os.path.splitext(filename)[0].split('_')
+
+            # Handle cases like letter_7_Quest_.png for ?
+            if len(parts) >= 3 and "quest" in parts[2].lower():
+                char = '?'
+            # Handle cases like letter_5_col_.png for :
+            elif len(parts) >= 3 and "col" in parts[2].lower():
+                char = ':'
+            # Handle standard cases
+            elif len(parts) >= 3 and parts[2]:
+                char = parts[2]
+            else:
+                continue
+
+            if char not in letter_images:
+                try:
+                    img = Image.open(file_path).convert('L')  # Convert to grayscale
+                    letter_images[char] = img
+                    print(f"Loaded letter image for '{char}' from {filename}")
+                except Exception as e:
+                    print(f"Error loading letter image '{file_path}': {e}")
+
+    # Check if we have at least some letters loaded
+    if not letter_images:
+        raise ValueError(f"No valid letter images found in {input_letters_dir}")
+
+    # Report missing letters
+    missing_chars = set()
+    for char in text:
+        if char != ' ' and char not in letter_images:
+            missing_chars.add(char)
+
+    if missing_chars:
+        print(f"Warning: The following characters in your text have no input images: {', '.join(missing_chars)}")
+        print("These will be represented by blank images.")
 
     # Transformation
     transform = transforms.Compose([
@@ -174,21 +300,12 @@ def generate_handwritten_text(generator_path, ttf_path, text, output_path, spaci
             img_space_tensor = transform(img_space)
             char_imgs.append(img_space_tensor)
         else:
-            img = Image.new('L', (128, 128), 255)
-            draw = ImageDraw.Draw(img)
+            # Use the loaded letter image if available, otherwise create a blank image
+            if char in letter_images:
+                img = letter_images[char]
+            else:
+                img = Image.new('L', (128, 128), 255)
 
-            # Get text size
-            try:
-                left, top, right, bottom = font.getbbox(char)
-                w, h = right - left, bottom - top
-            except AttributeError:
-                # Fallback for older PIL versions
-                try:
-                    w, h = font.getsize(char)
-                except:
-                    w, h = 30, 40  # Default size
-
-            draw.text(((128 - w) // 2, (128 - h) // 2), char, font=font, fill=0)
             img_tensor = transform(img)
             char_imgs.append(img_tensor)
 
@@ -336,22 +453,23 @@ def generate_handwritten_text(generator_path, ttf_path, text, output_path, spaci
 
     return result_img
 
+
 if __name__ == "__main__":
     # Your specific parameters
-    generator_path = "handwriting_gan_output/generator.pth"
-    font_path = "Myfont-Regular.ttf"
-    text = "Hello how You Doin"
+    generator_path = "handwriting_gan_output/generator_final.pth"
+    input_letters_dir = "segmented_letters/output"  # Directory containing letter images
+    text = "Hello hoW Are You?"
     output_path = "improved_hello_world.png"
-    spacing = -0.82  # Character spacing within words
+    spacing = 0  # Character spacing within words
     top_crop = 20
     remove_lines = True
     line_threshold = 240
 
-    # Generate handwritten text with updated space handling
+    # Generate handwritten text with input letter images
     try:
         result = generate_handwritten_text(
             generator_path=generator_path,
-            ttf_path=font_path,
+            input_letters_dir=input_letters_dir,
             text=text,
             output_path=output_path,
             spacing_factor=spacing,

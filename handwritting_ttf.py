@@ -4,10 +4,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageFilter
 import matplotlib.pyplot as plt
 from torchvision import transforms
 from scipy import ndimage
+import glob
+import re
 
 
 # Define the Generator with improved architecture
@@ -122,114 +124,89 @@ class Discriminator(nn.Module):
         return self.model(input_tensor)
 
 
-# Helper function for perspective transform in data augmentation
-def find_coeffs(pa, pb):
-    """Find coefficients for perspective transformation"""
-    matrix = []
-    for p1, p2 in zip(pa, pb):
-        matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
-        matrix.append([0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]])
-
-    A = np.matrix(matrix, dtype=np.float32)
-    B = np.array(pb).reshape(8)
-
-    res = np.dot(np.linalg.inv(A.T * A) * A.T, B)
-    return np.array(res).reshape(8)
-
-
-class FontDataset(Dataset):
-    def __init__(self, ttf_path, real_samples_dir, transform=None, augment=True):
-        self.font = ImageFont.truetype(ttf_path, 64)
+# New dataset class that loads from image directory
+class ImageDataset(Dataset):
+    def __init__(self, images_dir, transform=None, augment=True):
+        """
+        Dataset class that loads images from a directory structure
+        Args:
+            images_dir: Directory containing images in format 'letter_0_X_.png'
+            transform: Image transformations
+            augment: Whether to apply data augmentation
+        """
         self.transform = transform
         self.augment = augment
-        self.characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-        # Load real handwriting samples if provided
-        self.real_samples = []
-        if real_samples_dir and os.path.exists(real_samples_dir):
-            for file in os.listdir(real_samples_dir):
-                if file.endswith(('.png', '.jpg', '.jpeg')):
-                    img_path = os.path.join(real_samples_dir, file)
-                    img = Image.open(img_path).convert('L')
-                    if self.transform:
-                        img = self.transform(img)
-                    self.real_samples.append(img)
+        # Find all image files
+        self.image_files = glob.glob(os.path.join(images_dir, "*.png"))
+
+        # Extract character information from filenames
+        # Filename format: letter_0_X_.png where X is the character
+        self.char_images = {}
+
+        for img_path in self.image_files:
+            # Extract character from filename
+            filename = os.path.basename(img_path)
+            match = re.search(r'letter_\d+_(.+)_\.png', filename)
+            if match:
+                char = match.group(1)
+                # Store paths for each character
+                if char not in self.char_images:
+                    self.char_images[char] = []
+                self.char_images[char].append(img_path)
+
+        # Create a list of characters and their corresponding images
+        self.samples = []
+        for char, paths in self.char_images.items():
+            for path in paths:
+                self.samples.append((char, path))
+
+        print(f"Loaded {len(self.samples)} images for {len(self.char_images)} unique characters")
 
     def __len__(self):
-        return len(self.characters) * (3 if self.augment else 1)  # Multiple augmentations per character
+        return len(self.samples) * (3 if self.augment else 1)  # Multiple augmentations per image
+
+    def apply_augmentation(self, img, aug_type):
+        """Apply various augmentations to the image"""
+        img_aug = img.copy()
+
+        if aug_type == 1:
+            # Slight rotation
+            angle = np.random.uniform(-5, 5)
+            img_aug = img_aug.rotate(angle, resample=Image.BICUBIC, fillcolor=255)
+        elif aug_type == 2:
+            # Slight gaussian blur
+            img_aug = img_aug.filter(ImageFilter.GaussianBlur(radius=0.5))
+
+        return img_aug
 
     def __getitem__(self, idx):
-        char_idx = idx % len(self.characters)
-        char = self.characters[char_idx]
+        # Determine original sample index and augmentation type
+        sample_idx = idx % len(self.samples)
+        aug_type = idx // len(self.samples) if self.augment else 0
 
-        # Create font image with white background (255)
-        img = Image.new('L', (128, 128), 255)
-        draw = ImageDraw.Draw(img)
+        # Get character and image path
+        char, img_path = self.samples[sample_idx]
 
-        # Get text size using getbbox()
-        font = self.font
-        left, top, right, bottom = font.getbbox(char)
-        w, h = right - left, bottom - top
+        # Load image and convert to grayscale
+        img = Image.open(img_path).convert('L')
 
-        # Draw text centered
-        draw.text(((128 - w) // 2, (128 - h) // 2), char, font=font, fill=0)
+        # Create a copy for the target image
+        # For training pairs, we'll use the same image with slight variation
+        img_original = img.copy()
 
-        # Apply data augmentation based on augment index
-        aug_idx = idx // len(self.characters) if self.augment else 0
-
-        if self.augment and aug_idx > 0:
-            # Apply various slight transformations to increase variety
-            img_aug = img.copy()
-
-            if aug_idx == 1:
-                # Slight rotation
-                angle = np.random.uniform(-5, 5)
-                img_aug = img_aug.rotate(angle, resample=Image.BICUBIC, fillcolor=255)
-            elif aug_idx == 2:
-                # Slight perspective transformation
-                width, height = img.size
-                coeffs = find_coeffs(
-                    [(0, 0), (width, 0), (width, height), (0, height)],
-                    [(np.random.uniform(0, 10), np.random.uniform(0, 10)),
-                     (width - np.random.uniform(0, 10), np.random.uniform(0, 10)),
-                     (width - np.random.uniform(0, 10), height - np.random.uniform(0, 10)),
-                     (np.random.uniform(0, 10), height - np.random.uniform(0, 10))]
-                )
-                img_aug = img.transform((width, height), Image.PERSPECTIVE, coeffs,
-                                        Image.BICUBIC, fillcolor=255)
-
-            img = img_aug
+        # Apply augmentation if enabled
+        if self.augment and aug_type > 0:
+            img = self.apply_augmentation(img, aug_type)
 
         # Apply transform
         if self.transform:
             img_tensor = self.transform(img)
+            img_original_tensor = self.transform(img_original)
 
-        # Return real sample if available, otherwise use synthetic as both input and target
-        if char_idx < len(self.real_samples):
-            real_sample = self.real_samples[char_idx]
-            return img_tensor, real_sample
-        else:
-            # Create "target" with variation for more realistic handwriting
-            img_variation = img.copy()
-            draw_var = ImageDraw.Draw(img_variation)
-
-            # Apply slight noise and variation to simulate handwriting
-            offset_x = np.random.randint(-3, 4)
-            offset_y = np.random.randint(-3, 4)
-
-            # Use a thicker pen for target
-            font_size = 64 + np.random.randint(-4, 5)
-            target_font = ImageFont.truetype(self.font.path, font_size)
-
-            # Draw with slight position variation
-            draw_var.text(((128 - w) // 2 + offset_x, (128 - h) // 2 + offset_y),
-                          char, font=target_font, fill=0)
-
-            # Apply a slight blur for more natural appearance
-            img_variation = img_variation.filter(ImageFilter.GaussianBlur(radius=0.5))
-
-            img_variation_tensor = self.transform(img_variation)
-            return img_tensor, img_variation_tensor
+        # For now, use the same image as input and target with different augmentations
+        # This can be modified if you have paired data (input/target)
+        return img_tensor, img_original_tensor
 
 
 # Function to clean up background noise
@@ -263,7 +240,7 @@ def clean_background(image, threshold=240):
 
 
 # Training function with improved parameters
-def train_handwriting_gan(ttf_path, real_samples_dir=None, output_dir="output", num_epochs=100):
+def train_handwriting_gan(images_dir, output_dir="output", num_epochs=100):
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
@@ -279,7 +256,7 @@ def train_handwriting_gan(ttf_path, real_samples_dir=None, output_dir="output", 
     ])
 
     # Create dataset and dataloader with augmentation
-    dataset = FontDataset(ttf_path, real_samples_dir, transform, augment=True)
+    dataset = ImageDataset(images_dir, transform, augment=True)
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
 
     # Initialize networks
@@ -316,8 +293,8 @@ def train_handwriting_gan(ttf_path, real_samples_dir=None, output_dir="output", 
             epoch_samples += batch_size
 
             # Configure input
-            real_A = font_imgs.to(device)  # Font rendered image
-            real_B = real_imgs.to(device)  # Target "real" handwriting
+            real_A = font_imgs.to(device)  # Input image
+            real_B = real_imgs.to(device)  # Target image
 
             # -----------------
             #  Train Generator
@@ -378,7 +355,7 @@ def train_handwriting_gan(ttf_path, real_samples_dir=None, output_dir="output", 
                       f"[D loss: {loss_D.item():.4f}] [G loss: {loss_G.item():.4f}, "
                       f"pixel: {loss_pixel.item():.4f}, structure: {loss_structure.item():.4f}]")
 
-            # Update learning rates
+        # Update learning rates
         scheduler_G.step()
         scheduler_D.step()
 
@@ -393,6 +370,7 @@ def train_handwriting_gan(ttf_path, real_samples_dir=None, output_dir="output", 
         if epoch == num_epochs - 1:
             torch.save(generator.state_dict(), os.path.join(output_dir, "generator_final.pth"))
             torch.save(discriminator.state_dict(), os.path.join(output_dir, "discriminator_final.pth"))
+
         # Save sample images
         if epoch % 5 == 0 or epoch == num_epochs - 1:
             with torch.no_grad():
@@ -417,17 +395,17 @@ def train_handwriting_gan(ttf_path, real_samples_dir=None, output_dir="output", 
 
                 # Plot images
                 for i in range(4):
-                    # Font image
+                    # Input image
                     axs[0, i].imshow(test_A[i, 0], cmap='gray')
-                    axs[0, i].set_title('Font')
+                    axs[0, i].set_title('Input')
                     axs[0, i].axis('off')
 
-                    # Real handwriting
+                    # Target image
                     axs[1, i].imshow(test_B[i, 0], cmap='gray')
                     axs[1, i].set_title('Target')
                     axs[1, i].axis('off')
 
-                    # Generated handwriting
+                    # Generated image
                     axs[2, i].imshow(fake_B[i, 0], cmap='gray')
                     axs[2, i].set_title('Generated')
                     axs[2, i].axis('off')
@@ -436,13 +414,14 @@ def train_handwriting_gan(ttf_path, real_samples_dir=None, output_dir="output", 
                 plt.savefig(os.path.join(output_dir, f"samples_epoch_{epoch}.png"))
                 plt.close()
 
+
 # Function to generate handwriting from a saved model
-def generate_handwriting(input_text, font_path, model_path, output_dir="output", batch_size=16):
+def generate_handwriting(input_text, images_dir, model_path, output_dir="output", batch_size=16):
     """
     Generate handwriting from a saved model
     Args:
         input_text: Text to convert to handwriting
-        font_path: Path to the font file
+        images_dir: Directory containing character images
         model_path: Path to the saved generator model
         output_dir: Directory to save the output
         batch_size: Batch size for processing
@@ -465,8 +444,18 @@ def generate_handwriting(input_text, font_path, model_path, output_dir="output",
         transforms.Normalize([0.5], [0.5])
     ])
 
-    # Create font
-    font = ImageFont.truetype(font_path, 64)
+    # Create a map of characters to image paths
+    char_to_img = {}
+    image_files = glob.glob(os.path.join(images_dir, "*.png"))
+
+    for img_path in image_files:
+        filename = os.path.basename(img_path)
+        match = re.search(r'letter_\d+_(.+)_\.png', filename)
+        if match:
+            char = match.group(1)
+            if char not in char_to_img:
+                char_to_img[char] = []
+            char_to_img[char].append(img_path)
 
     # Generate individual characters
     characters = []
@@ -477,19 +466,18 @@ def generate_handwriting(input_text, font_path, model_path, output_dir="output",
             characters.append(char)
             continue
 
-        # Create font image
-        img = Image.new('L', (128, 128), 255)
-        draw = ImageDraw.Draw(img)
+        # Skip characters we don't have images for
+        if char not in char_to_img or not char_to_img[char]:
+            print(f"Warning: No image found for character '{char}', skipping.")
+            continue
 
-        # Get text size
-        left, top, right, bottom = font.getbbox(char)
-        w, h = right - left, bottom - top
+        # Select a random image for this character
+        img_path = np.random.choice(char_to_img[char])
 
-        # Draw text centered
-        draw.text(((128 - w) // 2, (128 - h) // 2), char, font=font, fill=0)
-
-        # Transform
+        # Load and transform the image
+        img = Image.open(img_path).convert('L')
         img_tensor = transform(img).unsqueeze(0).to(device)
+
         char_tensors.append(img_tensor)
         characters.append(char)
 
@@ -535,7 +523,7 @@ def generate_handwriting(input_text, font_path, model_path, output_dir="output",
 
     # Calculate total width
     total_width = sum(img.width for img in char_images)
-    max_height = max(img.height for img in char_images)
+    max_height = max(img.height for img in char_images) if char_images else 128
 
     # Create new image
     handwritten_text = Image.new('L', (total_width, max_height), 255)
@@ -550,6 +538,7 @@ def generate_handwriting(input_text, font_path, model_path, output_dir="output",
     handwritten_text.save(os.path.join(output_dir, "handwritten_text.png"))
 
     return os.path.join(output_dir, "handwritten_text.png")
+
 
 # Function to evaluate the model
 def evaluate_model(model_path, test_dataset, output_dir="evaluation"):
@@ -579,17 +568,17 @@ def evaluate_model(model_path, test_dataset, output_dir="evaluation"):
     mae_losses = []
 
     with torch.no_grad():
-        for i, (font_imgs, real_imgs) in enumerate(dataloader):
+        for i, (input_imgs, target_imgs) in enumerate(dataloader):
             # Configure input
-            real_A = font_imgs.to(device)  # Font rendered image
-            real_B = real_imgs.to(device)  # Target "real" handwriting
+            input_imgs = input_imgs.to(device)
+            target_imgs = target_imgs.to(device)
 
             # Generate fake handwriting
-            fake_B = generator(real_A)
+            fake_handwriting = generator(input_imgs)
 
             # Calculate metrics
-            mse_loss = nn.MSELoss()(fake_B, real_B).item()
-            mae_loss = nn.L1Loss()(fake_B, real_B).item()
+            mse_loss = nn.MSELoss()(fake_handwriting, target_imgs).item()
+            mae_loss = nn.L1Loss()(fake_handwriting, target_imgs).item()
 
             mse_losses.append(mse_loss)
             mae_losses.append(mae_loss)
@@ -597,31 +586,31 @@ def evaluate_model(model_path, test_dataset, output_dir="evaluation"):
             # Save sample images
             if i < 5:  # Save first 5 batches
                 # Convert to numpy arrays
-                real_A = (real_A * 0.5 + 0.5).cpu().numpy()
-                real_B = (real_B * 0.5 + 0.5).cpu().numpy()
-                fake_B = (fake_B * 0.5 + 0.5).cpu().numpy()
+                input_imgs_np = (input_imgs * 0.5 + 0.5).cpu().numpy()
+                target_imgs_np = (target_imgs * 0.5 + 0.5).cpu().numpy()
+                fake_handwriting_np = (fake_handwriting * 0.5 + 0.5).cpu().numpy()
 
                 # Clean up background noise
-                for j in range(fake_B.shape[0]):
-                    fake_B[j, 0] = clean_background(fake_B[j, 0] * 255) / 255
+                for j in range(fake_handwriting_np.shape[0]):
+                    fake_handwriting_np[j, 0] = clean_background(fake_handwriting_np[j, 0] * 255) / 255
 
                 # Create figure
                 fig, axs = plt.subplots(3, 8, figsize=(20, 7))
 
                 # Plot images
-                for j in range(min(8, real_A.shape[0])):
-                    # Font image
-                    axs[0, j].imshow(real_A[j, 0], cmap='gray')
-                    axs[0, j].set_title('Font')
+                for j in range(min(8, input_imgs_np.shape[0])):
+                    # Input image
+                    axs[0, j].imshow(input_imgs_np[j, 0], cmap='gray')
+                    axs[0, j].set_title('Input')
                     axs[0, j].axis('off')
 
-                    # Real handwriting
-                    axs[1, j].imshow(real_B[j, 0], cmap='gray')
+                    # Target image
+                    axs[1, j].imshow(target_imgs_np[j, 0], cmap='gray')
                     axs[1, j].set_title('Target')
                     axs[1, j].axis('off')
 
-                    # Generated handwriting
-                    axs[2, j].imshow(fake_B[j, 0], cmap='gray')
+                    # Generated image
+                    axs[2, j].imshow(fake_handwriting_np[j, 0], cmap='gray')
                     axs[2, j].set_title('Generated')
                     axs[2, j].axis('off')
 
@@ -630,8 +619,8 @@ def evaluate_model(model_path, test_dataset, output_dir="evaluation"):
                 plt.close()
 
     # Calculate average metrics
-    avg_mse = sum(mse_losses) / len(mse_losses)
-    avg_mae = sum(mae_losses) / len(mae_losses)
+    avg_mse = sum(mse_losses) / len(mse_losses) if mse_losses else 0
+    avg_mae = sum(mae_losses) / len(mae_losses) if mae_losses else 0
 
     print(f"Evaluation Results:")
     print(f"Average MSE: {avg_mse:.4f}")
@@ -644,13 +633,10 @@ def evaluate_model(model_path, test_dataset, output_dir="evaluation"):
 
     return avg_mse, avg_mae
 
-# Main function to run the entire pipeline
-
 
 def main():
     # Set paths
-    ttf_path = "Myfont-Regular.ttf"  # Replace with your font
-    real_samples_dir = "real_samples"  # Directory with real handwriting samples (optional)
+    images_dir = "segmented_letters/output"  # Directory containing character images
     output_dir = "handwriting_gan_output"
 
     # Create output directory
@@ -658,16 +644,14 @@ def main():
 
     # Train the model
     print("Training the handwriting GAN...")
-    train_handwriting_gan(ttf_path, real_samples_dir, output_dir, num_epochs=100)
+    train_handwriting_gan(images_dir, output_dir, num_epochs=100)
 
     # Generate handwriting from a sample text
     print("Generating handwriting sample...")
     sample_text = "Hello World!"
     model_path = os.path.join(output_dir, "generator_final.pth")
 
-    # Call the functions directly, not as methods of train_handwriting_gan
-    handwritten_text_path = generate_handwriting(sample_text, ttf_path, model_path, output_dir)
-
+    handwritten_text_path = generate_handwriting(sample_text, images_dir, model_path, output_dir)
     print(f"Handwritten text saved to: {handwritten_text_path}")
 
     # Create test dataset for evaluation
@@ -677,10 +661,10 @@ def main():
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5])
     ])
-    test_dataset = FontDataset(ttf_path, real_samples_dir, transform, augment=False)
+    test_dataset = ImageDataset(images_dir, transform, augment=False)
 
-    # Call evaluate_model directly
     evaluate_model(model_path, test_dataset, os.path.join(output_dir, "evaluation"))
+
+
 if __name__ == "__main__":
     main()
-
