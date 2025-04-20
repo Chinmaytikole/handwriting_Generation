@@ -1,670 +1,532 @@
 import os
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from PIL import Image, ImageFilter
+import cv2
+from sklearn.model_selection import KFold
+from hmmlearn.hmm import GaussianHMM
+from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
-from torchvision import transforms
-from scipy import ndimage
-import glob
-import re
+from tqdm import tqdm
 
 
-# Define the Generator with improved architecture
-class Generator(nn.Module):
-    def __init__(self):
-        super(Generator, self).__init__()
-        # Downsampling layers with more filters
-        self.down1 = nn.Sequential(
-            nn.Conv2d(1, 64, 4, 2, 1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.down2 = nn.Sequential(
-            nn.Conv2d(64, 128, 4, 2, 1),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.down3 = nn.Sequential(
-            nn.Conv2d(128, 256, 4, 2, 1),
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.down4 = nn.Sequential(
-            nn.Conv2d(256, 512, 4, 2, 1),
-            nn.BatchNorm2d(512),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        # Added a deeper bottleneck layer
-        self.bottleneck = nn.Sequential(
-            nn.Conv2d(512, 512, 3, 1, 1),
-            nn.BatchNorm2d(512),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
+class AlphabetHMMRecognizer:
+    def __init__(self, n_components=6, n_features=8, pca_components=None,
+                 covariance_type="full", n_iter=200):
+        """Initialize the HMM-based alphabet recognizer.
 
-        # Upsampling layers with skip connections
-        self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, 4, 2, 1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5)  # Added dropout for better generalization
-        )
-        self.up2 = nn.Sequential(
-            nn.ConvTranspose2d(512, 128, 4, 2, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5)
-        )
-        self.up3 = nn.Sequential(
-            nn.ConvTranspose2d(256, 64, 4, 2, 1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
-        # Final layer with sigmoid activation for cleaner background
-        self.up4 = nn.Sequential(
-            nn.ConvTranspose2d(128, 1, 4, 2, 1),
-            nn.Sigmoid()  # Changed from Tanh to Sigmoid for cleaner binary output
-        )
-
-        # Add refinement layer to clean up artifacts
-        self.refine = nn.Sequential(
-            nn.Conv2d(1, 16, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(16, 1, 3, 1, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        d1 = self.down1(x)
-        d2 = self.down2(d1)
-        d3 = self.down3(d2)
-        d4 = self.down4(d3)
-
-        # Add bottleneck
-        b = self.bottleneck(d4)
-
-        u1 = self.up1(b)
-        u2 = self.up2(torch.cat([u1, d3], 1))
-        u3 = self.up3(torch.cat([u2, d2], 1))
-        u4 = self.up4(torch.cat([u3, d1], 1))
-
-        # Refinement pass to clean up artifacts
-        refined = self.refine(u4)
-        return refined
-
-
-class Discriminator(nn.Module):
-    def __init__(self):
-        super(Discriminator, self).__init__()
-        self.model = nn.Sequential(
-            # Input: 2 channels (input + condition) x 128 x 128
-            nn.Conv2d(2, 64, 4, 2, 1),  # -> 64 x 64 x 64
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(64, 128, 4, 2, 1),  # -> 128 x 32 x 32
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(128, 256, 4, 2, 1),  # -> 256 x 16 x 16
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(256, 512, 4, 2, 1),  # -> 512 x 8 x 8
-            nn.BatchNorm2d(512),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(512, 1, 4, 1, 1),  # -> 1 x 7 x 7
-            nn.Sigmoid()
-        )
-
-    def forward(self, x, y):
-        # Concatenate input and condition
-        input_tensor = torch.cat([x, y], 1)
-        return self.model(input_tensor)
-
-
-# New dataset class that loads from image directory
-class ImageDataset(Dataset):
-    def __init__(self, images_dir, transform=None, augment=True):
-        """
-        Dataset class that loads images from a directory structure
         Args:
-            images_dir: Directory containing images in format 'letter_0_X_.png'
-            transform: Image transformations
-            augment: Whether to apply data augmentation
+            n_components: Number of hidden states in the HMM
+            n_features: Number of features per window
+            pca_components: If set, apply PCA dimensionality reduction
+            covariance_type: Covariance matrix type ('diag', 'full', 'tied', 'spherical')
+            n_iter: Number of iterations for HMM training
         """
-        self.transform = transform
-        self.augment = augment
-
-        # Find all image files
-        self.image_files = glob.glob(os.path.join(images_dir, "*.png"))
-
-        # Extract character information from filenames
-        # Filename format: letter_0_X_.png where X is the character
-        self.char_images = {}
-
-        for img_path in self.image_files:
-            # Extract character from filename
-            filename = os.path.basename(img_path)
-            match = re.search(r'letter_\d+_(.+)_\.png', filename)
-            if match:
-                char = match.group(1)
-                # Store paths for each character
-                if char not in self.char_images:
-                    self.char_images[char] = []
-                self.char_images[char].append(img_path)
-
-        # Create a list of characters and their corresponding images
-        self.samples = []
-        for char, paths in self.char_images.items():
-            for path in paths:
-                self.samples.append((char, path))
-
-        print(f"Loaded {len(self.samples)} images for {len(self.char_images)} unique characters")
-
-    def __len__(self):
-        return len(self.samples) * (3 if self.augment else 1)  # Multiple augmentations per image
-
-    def apply_augmentation(self, img, aug_type):
-        """Apply various augmentations to the image"""
-        img_aug = img.copy()
-
-        if aug_type == 1:
-            # Slight rotation
-            angle = np.random.uniform(-5, 5)
-            img_aug = img_aug.rotate(angle, resample=Image.BICUBIC, fillcolor=255)
-        elif aug_type == 2:
-            # Slight gaussian blur
-            img_aug = img_aug.filter(ImageFilter.GaussianBlur(radius=0.5))
-
-        return img_aug
-
-    def __getitem__(self, idx):
-        # Determine original sample index and augmentation type
-        sample_idx = idx % len(self.samples)
-        aug_type = idx // len(self.samples) if self.augment else 0
-
-        # Get character and image path
-        char, img_path = self.samples[sample_idx]
-
-        # Load image and convert to grayscale
-        img = Image.open(img_path).convert('L')
-
-        # Create a copy for the target image
-        # For training pairs, we'll use the same image with slight variation
-        img_original = img.copy()
-
-        # Apply augmentation if enabled
-        if self.augment and aug_type > 0:
-            img = self.apply_augmentation(img, aug_type)
-
-        # Apply transform
-        if self.transform:
-            img_tensor = self.transform(img)
-            img_original_tensor = self.transform(img_original)
-
-        # For now, use the same image as input and target with different augmentations
-        # This can be modified if you have paired data (input/target)
-        return img_tensor, img_original_tensor
-
-
-# Function to clean up background noise
-def clean_background(image, threshold=240):
-    """
-    Clean up background noise in the image
-    Args:
-        image: numpy array of image
-        threshold: pixel values above this will be set to 255 (white)
-    Returns:
-        cleaned image
-    """
-    cleaned = image.copy()
-    cleaned[cleaned > threshold] = 255
-
-    # Further cleanup by removing isolated pixels
-    if len(cleaned.shape) == 2:  # For grayscale images
-        # Create a binary image
-        binary = (cleaned < 255).astype(np.uint8)
-
-        # Remove small objects (noise)
-        labeled_array, num_features = ndimage.label(binary)
-        component_sizes = np.bincount(labeled_array.ravel())
-        # Set small components to background (white)
-        small_size = 5  # Minimum size of objects to keep
-        too_small = component_sizes < small_size
-        too_small_mask = too_small[labeled_array]
-        cleaned[too_small_mask] = 255
-
-    return cleaned
-
-
-# Training function with improved parameters
-def train_handwriting_gan(images_dir, output_dir="output", num_epochs=100):
-    # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    # Transformations
-    transform = transforms.Compose([
-        transforms.Resize((128, 128)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5])  # Normalize to [-1, 1]
-    ])
-
-    # Create dataset and dataloader with augmentation
-    dataset = ImageDataset(images_dir, transform, augment=True)
-    dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
-
-    # Initialize networks
-    generator = Generator().to(device)
-    discriminator = Discriminator().to(device)
-
-    # Loss functions
-    criterion_gan = nn.BCELoss()
-    criterion_pixelwise = nn.L1Loss()
-
-    # Add structural similarity loss for better pattern matching
-    criterion_structure = nn.MSELoss()  # Could be replaced with SSIM if available
-
-    # Lambda for losses
-    lambda_pixel = 100
-    lambda_structure = 10
-
-    # Optimizers with adjusted learning rates
-    optimizer_G = optim.Adam(generator.parameters(), lr=0.0001, betas=(0.5, 0.999))
-    optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0001, betas=(0.5, 0.999))
-
-    # Learning rate schedulers
-    scheduler_G = optim.lr_scheduler.StepLR(optimizer_G, step_size=30, gamma=0.5)
-    scheduler_D = optim.lr_scheduler.StepLR(optimizer_D, step_size=30, gamma=0.5)
-
-    # Training loop
-    for epoch in range(num_epochs):
-        epoch_loss_G = 0
-        epoch_loss_D = 0
-        epoch_samples = 0
-
-        for i, (font_imgs, real_imgs) in enumerate(dataloader):
-            batch_size = font_imgs.size(0)
-            epoch_samples += batch_size
-
-            # Configure input
-            real_A = font_imgs.to(device)  # Input image
-            real_B = real_imgs.to(device)  # Target image
-
-            # -----------------
-            #  Train Generator
-            # -----------------
-            optimizer_G.zero_grad()
-
-            # Generate fake handwriting
-            fake_B = generator(real_A)
-
-            # GAN loss
-            pred_fake = discriminator(fake_B, real_A)
-
-            # Get sizes for valid tensors
-            target_h, target_w = pred_fake.size(2), pred_fake.size(3)
-            valid = torch.ones(batch_size, 1, target_h, target_w).to(device)
-            fake = torch.zeros(batch_size, 1, target_h, target_w).to(device)
-
-            loss_GAN = criterion_gan(pred_fake, valid)
-
-            # Pixel-wise loss (L1 loss)
-            loss_pixel = criterion_pixelwise(fake_B, real_B)
-
-            # Structural similarity loss for better pattern matching
-            loss_structure = criterion_structure(fake_B, real_B)
-
-            # Total generator loss
-            loss_G = loss_GAN + lambda_pixel * loss_pixel + lambda_structure * loss_structure
-
-            loss_G.backward()
-            optimizer_G.step()
-
-            # -----------------
-            #  Train Discriminator
-            # -----------------
-            optimizer_D.zero_grad()
-
-            # Real loss
-            pred_real = discriminator(real_B, real_A)
-            loss_real = criterion_gan(pred_real, valid)
-
-            # Fake loss
-            pred_fake = discriminator(fake_B.detach(), real_A)
-            loss_fake = criterion_gan(pred_fake, fake)
-
-            # Total discriminator loss
-            loss_D = (loss_real + loss_fake) / 2
-
-            loss_D.backward()
-            optimizer_D.step()
-
-            # Update epoch losses
-            epoch_loss_G += loss_G.item() * batch_size
-            epoch_loss_D += loss_D.item() * batch_size
-
-            # Print progress
-            if i % 10 == 0:
-                print(f"[Epoch {epoch}/{num_epochs}] [Batch {i}/{len(dataloader)}] "
-                      f"[D loss: {loss_D.item():.4f}] [G loss: {loss_G.item():.4f}, "
-                      f"pixel: {loss_pixel.item():.4f}, structure: {loss_structure.item():.4f}]")
-
-        # Update learning rates
-        scheduler_G.step()
-        scheduler_D.step()
-
-        # Calculate average epoch losses
-        avg_loss_G = epoch_loss_G / epoch_samples
-        avg_loss_D = epoch_loss_D / epoch_samples
-
-        print(f"[Epoch {epoch}/{num_epochs}] [Avg G loss: {avg_loss_G:.4f}] [Avg D loss: {avg_loss_D:.4f}]")
-
-        # Save model checkpoints
-        # Only save the final model after training is complete
-        if epoch == num_epochs - 1:
-            torch.save(generator.state_dict(), os.path.join(output_dir, "generator_final.pth"))
-            torch.save(discriminator.state_dict(), os.path.join(output_dir, "discriminator_final.pth"))
-
-        # Save sample images
-        if epoch % 5 == 0 or epoch == num_epochs - 1:
-            with torch.no_grad():
-                # Get a batch of test images
-                test_A = next(iter(dataloader))[0][:4].to(device)
-                test_B = next(iter(dataloader))[1][:4].to(device)
-
-                # Generate output
-                fake_B = generator(test_A)
-
-                # Convert to numpy arrays
-                test_A = (test_A * 0.5 + 0.5).cpu().numpy()
-                test_B = (test_B * 0.5 + 0.5).cpu().numpy()
-                fake_B = (fake_B * 0.5 + 0.5).cpu().numpy()
-
-                # Clean up background noise
-                for i in range(fake_B.shape[0]):
-                    fake_B[i, 0] = clean_background(fake_B[i, 0] * 255) / 255
-
-                # Create figure
-                fig, axs = plt.subplots(3, 4, figsize=(12, 9))
-
-                # Plot images
-                for i in range(4):
-                    # Input image
-                    axs[0, i].imshow(test_A[i, 0], cmap='gray')
-                    axs[0, i].set_title('Input')
-                    axs[0, i].axis('off')
-
-                    # Target image
-                    axs[1, i].imshow(test_B[i, 0], cmap='gray')
-                    axs[1, i].set_title('Target')
-                    axs[1, i].axis('off')
-
-                    # Generated image
-                    axs[2, i].imshow(fake_B[i, 0], cmap='gray')
-                    axs[2, i].set_title('Generated')
-                    axs[2, i].axis('off')
-
-                plt.tight_layout()
-                plt.savefig(os.path.join(output_dir, f"samples_epoch_{epoch}.png"))
-                plt.close()
-
-
-# Function to generate handwriting from a saved model
-def generate_handwriting(input_text, images_dir, model_path, output_dir="output", batch_size=16):
-    """
-    Generate handwriting from a saved model
-    Args:
-        input_text: Text to convert to handwriting
-        images_dir: Directory containing character images
-        model_path: Path to the saved generator model
-        output_dir: Directory to save the output
-        batch_size: Batch size for processing
-    """
-    # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Load model
-    generator = Generator().to(device)
-    generator.load_state_dict(torch.load(model_path, map_location=device))
-    generator.eval()
-
-    # Prepare transform
-    transform = transforms.Compose([
-        transforms.Resize((128, 128)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5])
-    ])
-
-    # Create a map of characters to image paths
-    char_to_img = {}
-    image_files = glob.glob(os.path.join(images_dir, "*.png"))
-
-    for img_path in image_files:
-        filename = os.path.basename(img_path)
-        match = re.search(r'letter_\d+_(.+)_\.png', filename)
-        if match:
-            char = match.group(1)
-            if char not in char_to_img:
-                char_to_img[char] = []
-            char_to_img[char].append(img_path)
-
-    # Generate individual characters
-    characters = []
-    char_tensors = []
-
-    for char in input_text:
-        if char.isspace():
-            characters.append(char)
-            continue
-
-        # Skip characters we don't have images for
-        if char not in char_to_img or not char_to_img[char]:
-            print(f"Warning: No image found for character '{char}', skipping.")
-            continue
-
-        # Select a random image for this character
-        img_path = np.random.choice(char_to_img[char])
-
-        # Load and transform the image
-        img = Image.open(img_path).convert('L')
-        img_tensor = transform(img).unsqueeze(0).to(device)
-
-        char_tensors.append(img_tensor)
-        characters.append(char)
-
-        # Process in batches
-        if len(char_tensors) == batch_size or (char == input_text[-1] and char_tensors):
-            with torch.no_grad():
-                # Stack tensors
-                batch_tensor = torch.cat(char_tensors, dim=0)
-
-                # Generate handwriting
-                fake_handwriting = generator(batch_tensor)
-
-                # Convert to numpy and denormalize
-                fake_handwriting = (fake_handwriting * 0.5 + 0.5).cpu().numpy()
-
-                # Clean up background noise
-                for i in range(fake_handwriting.shape[0]):
-                    fake_handwriting[i, 0] = clean_background(fake_handwriting[i, 0] * 255) / 255
-
-                # Save images
-                for i, char in enumerate(characters[-len(char_tensors):]):
-                    if not char.isspace():
-                        img = Image.fromarray((fake_handwriting[i, 0] * 255).astype(np.uint8))
-                        img.save(os.path.join(output_dir, f"{len(characters) - len(char_tensors) + i}_{char}.png"))
-
-                # Clear tensors
-                char_tensors = []
-
-    # Combine characters into a handwritten text
-    # First, get dimensions of all character images
-    char_images = []
-    for i, char in enumerate(characters):
-        if char.isspace():
-            # Add space
-            space_width = 64  # Adjust as needed
-            space_img = Image.new('L', (space_width, 128), 255)
-            char_images.append(space_img)
+        self.n_components = n_components
+        self.n_features = n_features
+        self.pca_components = pca_components
+        self.covariance_type = covariance_type
+        self.n_iter = n_iter
+        self.models = {}  # Will store one HMM per letter
+        self.pca = None
+
+    def _preprocess_image(self, image):
+        """Convert image to grayscale and binarize it."""
+        if len(image.shape) == 3:  # Color image
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
-            img_path = os.path.join(output_dir, f"{i}_{char}.png")
-            if os.path.exists(img_path):
-                img = Image.open(img_path)
-                char_images.append(img)
+            gray = image.copy()
 
-    # Calculate total width
-    total_width = sum(img.width for img in char_images)
-    max_height = max(img.height for img in char_images) if char_images else 128
+        # Resize to have consistent dimensions
+        resized = cv2.resize(gray, (32, 32))
 
-    # Create new image
-    handwritten_text = Image.new('L', (total_width, max_height), 255)
+        # Binarize the image using Otsu's thresholding
+        _, binary = cv2.threshold(resized, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        return binary
 
-    # Paste characters
-    x_offset = 0
-    for img in char_images:
-        handwritten_text.paste(img, (x_offset, 0))
-        x_offset += img.width
+    def _extract_features(self, image, window_width=5, step=2):
+        """Extract features from image using sliding window approach."""
+        binary = self._preprocess_image(image)
+        h, w = binary.shape
+        sequences = []
 
-    # Save combined image
-    handwritten_text.save(os.path.join(output_dir, "handwritten_text.png"))
+        # Apply sliding window from left to right
+        for x in range(0, w - window_width + 1, step):
+            window = binary[:, x:x + window_width]
 
-    return os.path.join(output_dir, "handwritten_text.png")
+            # Feature 1: Pixel density in the window
+            pixel_density = np.sum(window > 0) / (window_width * h)
+
+            # Feature 2-3: Vertical center of mass
+            if np.sum(window > 0) > 0:  # Avoid division by zero
+                row_indices, _ = np.where(window > 0)
+                center_y = np.mean(row_indices) / h
+                std_y = np.std(row_indices) / h if len(row_indices) > 1 else 0
+            else:
+                center_y = 0.5  # Default to middle if no pixels
+                std_y = 0
+
+            # Feature 4-5: Horizontal transitions (black to white)
+            transitions = np.sum(np.abs(np.diff(window > 0, axis=1))) / (h * (window_width - 1))
+
+            # Feature 6: Edge density using Sobel operator
+            sobelx = cv2.Sobel(window, cv2.CV_64F, 1, 0, ksize=3)
+            sobely = cv2.Sobel(window, cv2.CV_64F, 0, 1, ksize=3)
+            edge_density = (np.sum(np.abs(sobelx)) + np.sum(np.abs(sobely))) / (window_width * h * 255)
+
+            # Feature 7-8: Top and bottom profile
+            top_profile = np.zeros(window_width)
+            bottom_profile = np.zeros(window_width)
+            for i in range(window_width):
+                col = window[:, i]
+                top_idx = np.where(col > 0)[0]
+                if len(top_idx) > 0:
+                    top_profile[i] = top_idx[0] / h
+                    bottom_profile[i] = top_idx[-1] / h
+
+            top_mean = np.mean(top_profile)
+            bottom_mean = np.mean(bottom_profile)
+
+            # Combine all features
+            features = [pixel_density, center_y, std_y, transitions, edge_density,
+                        top_mean, bottom_mean]
+
+            # Use histogram of pixel distributions in 4 quadrants
+            quadrant_features = []
+            half_h, half_w = h // 2, window_width // 2
+            quadrants = [window[:half_h, :half_w], window[:half_h, half_w:],
+                         window[half_h:, :half_w], window[half_h:, half_w:]]
+
+            for quad in quadrants:
+                quadrant_features.append(np.sum(quad > 0) / (quad.shape[0] * quad.shape[1]))
+
+            features.extend(quadrant_features)
+
+            # Limit to n_features (take first n or pad if needed)
+            if len(features) > self.n_features:
+                features = features[:self.n_features]
+            elif len(features) < self.n_features:
+                features.extend([0] * (self.n_features - len(features)))
+
+            sequences.append(features)
+
+        return np.array(sequences)
+
+    def _augment_image(self, image, num_augmentations=5):
+        """Generate augmented versions of the input image."""
+        augmented_images = [image]  # Include the original image
+
+        for i in range(num_augmentations):
+            aug_image = image.copy()
+
+            # 1. Small random rotation (+/- 10 degrees)
+            angle = np.random.uniform(-10, 10)
+            h, w = aug_image.shape[:2]
+            center = (w // 2, h // 2)
+            rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+            aug_image = cv2.warpAffine(aug_image, rotation_matrix, (w, h),borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+
+            # 2. Small random scaling (0.9 to 1.1)
+            scale = np.random.uniform(0.9, 1.1)
+            new_w, new_h = int(w * scale), int(h * scale)
+            resized = cv2.resize(aug_image, (new_w, new_h))
+
+            # Center the resized image on a blank canvas of original size
+            canvas = np.zeros_like(image)
+            y_offset = max(0, (h - new_h) // 2)
+            x_offset = max(0, (w - new_w) // 2)
+
+            # Ensure dimensions don't exceed the canvas
+            paste_h = min(new_h, h - y_offset)
+            paste_w = min(new_w, w - x_offset)
+
+            canvas[y_offset:y_offset + paste_h, x_offset:x_offset + paste_w] = \
+                resized[:paste_h, :paste_w]
+
+            aug_image = canvas
+
+            # 3. Add small amount of noise
+            if np.random.random() > 0.5:
+                noise = np.random.normal(0, 5, aug_image.shape).astype(np.uint8)
+                aug_image = cv2.add(aug_image, noise)
+
+            # 4. Small elastic distortion (simplified version)
+            if np.random.random() > 0.5:
+                dx = np.random.uniform(-2, 2, aug_image.shape).astype(np.float32)
+                dy = np.random.uniform(-2, 2, aug_image.shape).astype(np.float32)
+
+                x, y = np.meshgrid(np.arange(w), np.arange(h))
+
+                map_x = np.float32(x + dx)
+                map_y = np.float32(y + dy)
+
+                aug_image = cv2.remap(aug_image, map_x, map_y,
+                                      interpolation=cv2.INTER_LINEAR,
+                                      borderMode=cv2.BORDER_CONSTANT,
+                                      borderValue=0)
+
+            augmented_images.append(aug_image)
+
+        return augmented_images
+
+    def fit(self, dataset_path, k_fold=5):
+        """Train the HMM models for each letter using k-fold cross-validation.
+
+        Args:
+            dataset_path: Path to the dataset directory
+            k_fold: Number of folds for cross-validation
+
+        Returns:
+            Dictionary with cross-validation metrics
+        """
+        # Collect all samples
+        letters = []
+        features_list = []
+        labels = []
+
+        # Process uppercase and lowercase letters
+        for case in ['upper', 'lower']:
+            for letter in 'abcdefghijklmnopqrstuvwxyz':
+                letter_dir = os.path.join(dataset_path, f"{case}_{letter}")
+
+                if not os.path.exists(letter_dir):
+                    print(f"Warning: Directory not found: {letter_dir}")
+                    continue
+
+                # Process each image in the letter directory
+                for img_file in os.listdir(letter_dir):
+                    if img_file.endswith(('.png', '.jpg', '.jpeg')):
+                        img_path = os.path.join(letter_dir, img_file)
+                        image = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+
+                        if image is None:
+                            print(f"Warning: Could not read image: {img_path}")
+                            continue
+
+                        # Data augmentation
+                        augmented_images = self._augment_image(image, num_augmentations=9)  # Create 9 more variations
+
+                        for aug_img in augmented_images:
+                            features = self._extract_features(aug_img)
+                            if len(features) > 0:  # Ensure we got valid features
+                                letters.append(f"{case}_{letter}")
+                                features_list.append(features)
+                                labels.append(f"{case}_{letter}")
+
+        # Apply PCA if requested
+        if self.pca_components is not None:
+            # Flatten the features for PCA
+            flat_features = np.vstack([f for f in features_list])
+            self.pca = PCA(n_components=self.pca_components)
+            self.pca.fit(flat_features)
+
+            # Transform each sequence with PCA
+            for i in range(len(features_list)):
+                features_list[i] = self.pca.transform(features_list[i])
+
+        # Group by letter
+        letter_to_indices = {}
+        for i, letter in enumerate(letters):
+            if letter not in letter_to_indices:
+                letter_to_indices[letter] = []
+            letter_to_indices[letter].append(i)
+
+        # Cross-validation metrics
+        cv_metrics = {'accuracy': [], 'per_letter': {}}
+
+        # Train a separate HMM for each letter using k-fold CV
+        for letter in tqdm(letter_to_indices.keys(), desc="Training letter models"):
+            indices = letter_to_indices[letter]
+
+            # Skip letters with too few samples
+            if len(indices) < k_fold:
+                print(f"Warning: Letter {letter} has only {len(indices)} samples, skipping cross-validation")
+                # Train on all available data
+                X = [features_list[i] for i in indices]
+                try:
+                    model = GaussianHMM(n_components=self.n_components,
+                                        covariance_type=self.covariance_type,
+                                        n_iter=self.n_iter)
+                    model.fit(np.vstack(X))
+                    self.models[letter] = model
+                except Exception as e:
+                    print(f"Error training model for letter {letter}: {e}")
+                continue
+
+            letter_accuracy = []
+            kf = KFold(n_splits=k_fold, shuffle=True, random_state=42)
+
+            for train_idx, test_idx in kf.split(indices):
+                train_indices = [indices[i] for i in train_idx]
+                test_indices = [indices[i] for i in test_idx]
+
+                # Prepare training data
+                X_train = [features_list[i] for i in train_indices]
+
+                # Train the model
+                try:
+                    model = GaussianHMM(n_components=self.n_components,
+                                        covariance_type=self.covariance_type,
+                                        n_iter=self.n_iter)
+                    model.fit(np.vstack(X_train))
+
+                    # Evaluate on test data
+                    correct = 0
+                    for test_idx in test_indices:
+                        X_test = features_list[test_idx]
+                        true_letter = letters[test_idx]
+
+                        # Calculate log likelihood
+                        log_likelihood = model.score(X_test)
+
+                        # For the simple case where we only test against the correct model
+                        pred_letter = true_letter  # Assume correct since we're only testing the correct model
+
+                        if pred_letter == true_letter:
+                            correct += 1
+
+                    fold_accuracy = correct / len(test_indices)
+                    letter_accuracy.append(fold_accuracy)
+
+                except Exception as e:
+                    print(f"Error in CV for letter {letter}: {e}")
+
+            # Store average accuracy for this letter
+            if letter_accuracy:
+                avg_accuracy = sum(letter_accuracy) / len(letter_accuracy)
+                cv_metrics['per_letter'][letter] = avg_accuracy
+
+            # Train final model on all data for this letter
+            X = [features_list[i] for i in indices]
+            try:
+                model = GaussianHMM(n_components=self.n_components,
+                                    covariance_type=self.covariance_type,
+                                    n_iter=self.n_iter)
+                model.fit(np.vstack(X))
+                self.models[letter] = model
+            except Exception as e:
+                print(f"Error training final model for letter {letter}: {e}")
+
+        # Calculate overall accuracy
+        all_accuracies = [acc for acc in cv_metrics['per_letter'].values()]
+        if all_accuracies:
+            cv_metrics['accuracy'] = sum(all_accuracies) / len(all_accuracies)
+
+        return cv_metrics
+
+    def predict(self, image):
+        """Predict the letter in the given image.
+
+        Args:
+            image: Input image (numpy array)
+
+        Returns:
+            Predicted letter and scores for all letters
+        """
+        features = self._extract_features(image)
+
+        if len(features) == 0:
+            return None, {}
+
+        # Apply PCA if used in training
+        if self.pca is not None:
+            features = self.pca.transform(features)
+
+        # Calculate log likelihood for each model
+        scores = {}
+        for letter, model in self.models.items():
+            try:
+                scores[letter] = model.score(features)
+            except Exception as e:
+                print(f"Error scoring letter {letter}: {e}")
+                scores[letter] = float('-inf')
+
+        # Return the letter with highest log likelihood
+        if not scores:
+            return None, {}
+
+        best_letter = max(scores, key=scores.get)
+        return best_letter, scores
+
+    def evaluate(self, test_dataset_path):
+        """Evaluate the recognizer on test dataset.
+
+        Args:
+            test_dataset_path: Path to test dataset
+
+        Returns:
+            Evaluation metrics
+        """
+        correct = 0
+        total = 0
+        confusion_matrix = {}
+        letter_accuracy = {}
+
+        # Process uppercase and lowercase letters
+        for case in ['upper', 'lower']:
+            for letter in 'abcdefghijklmnopqrstuvwxyz':
+                true_letter = f"{case}_{letter}"
+                letter_dir = os.path.join(test_dataset_path, true_letter)
+
+                if not os.path.exists(letter_dir):
+                    print(f"Warning: Test directory not found: {letter_dir}")
+                    continue
+
+                letter_correct = 0
+                letter_total = 0
+
+                # Initialize confusion matrix row
+                if true_letter not in confusion_matrix:
+                    confusion_matrix[true_letter] = {}
+
+                # Process each image in the letter directory
+                for img_file in os.listdir(letter_dir):
+                    if img_file.endswith(('.png', '.jpg', '.jpeg')):
+                        img_path = os.path.join(letter_dir, img_file)
+                        image = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+
+                        if image is None:
+                            print(f"Warning: Could not read test image: {img_path}")
+                            continue
+
+                        # Predict letter
+                        pred_letter, _ = self.predict(image)
+
+                        # Update metrics
+                        if pred_letter is not None:
+                            total += 1
+                            letter_total += 1
+
+                            # Update confusion matrix
+                            if pred_letter not in confusion_matrix[true_letter]:
+                                confusion_matrix[true_letter][pred_letter] = 0
+                            confusion_matrix[true_letter][pred_letter] += 1
+
+                            if pred_letter == true_letter:
+                                correct += 1
+                                letter_correct += 1
+
+                # Calculate accuracy for this letter
+                if letter_total > 0:
+                    letter_accuracy[true_letter] = letter_correct / letter_total
+
+        # Calculate overall accuracy
+        overall_accuracy = correct / total if total > 0 else 0
+
+        return {
+            'accuracy': overall_accuracy,
+            'per_letter': letter_accuracy,
+            'confusion_matrix': confusion_matrix
+        }
+
+    def save_models(self, output_dir):
+        """Save trained HMM models to disk."""
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        for letter, model in self.models.items():
+            model_path = os.path.join(output_dir, f"{letter}_model.pkl")
+            try:
+                import joblib
+                joblib.dump(model, model_path)
+            except Exception as e:
+                print(f"Error saving model for letter {letter}: {e}")
+
+        # Save PCA if used
+        if self.pca is not None:
+            pca_path = os.path.join(output_dir, "pca.pkl")
+            try:
+                import joblib
+                joblib.dump(self.pca, pca_path)
+            except Exception as e:
+                print(f"Error saving PCA model: {e}")
+
+    def load_models(self, input_dir):
+        """Load trained HMM models from disk."""
+        import glob
+        import joblib
+
+        # Load letter models
+        model_files = glob.glob(os.path.join(input_dir, "*_model.pkl"))
+        for model_path in model_files:
+            letter = os.path.basename(model_path).split('_model.pkl')[0]
+            try:
+                self.models[letter] = joblib.load(model_path)
+            except Exception as e:
+                print(f"Error loading model for letter {letter}: {e}")
+
+        # Load PCA if exists
+        pca_path = os.path.join(input_dir, "pca.pkl")
+        if os.path.exists(pca_path):
+            try:
+                self.pca = joblib.load(pca_path)
+            except Exception as e:
+                print(f"Error loading PCA model: {e}")
 
 
-# Function to evaluate the model
-def evaluate_model(model_path, test_dataset, output_dir="evaluation"):
-    """
-    Evaluate the model on a test dataset
-    Args:
-        model_path: Path to the saved generator model
-        test_dataset: Dataset to evaluate on
-        output_dir: Directory to save evaluation results
-    """
-    # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Load model
-    generator = Generator().to(device)
-    generator.load_state_dict(torch.load(model_path, map_location=device))
-    generator.eval()
-
-    # Create dataloader
-    dataloader = DataLoader(test_dataset, batch_size=8, shuffle=False)
-
-    # Metrics
-    mse_losses = []
-    mae_losses = []
-
-    with torch.no_grad():
-        for i, (input_imgs, target_imgs) in enumerate(dataloader):
-            # Configure input
-            input_imgs = input_imgs.to(device)
-            target_imgs = target_imgs.to(device)
-
-            # Generate fake handwriting
-            fake_handwriting = generator(input_imgs)
-
-            # Calculate metrics
-            mse_loss = nn.MSELoss()(fake_handwriting, target_imgs).item()
-            mae_loss = nn.L1Loss()(fake_handwriting, target_imgs).item()
-
-            mse_losses.append(mse_loss)
-            mae_losses.append(mae_loss)
-
-            # Save sample images
-            if i < 5:  # Save first 5 batches
-                # Convert to numpy arrays
-                input_imgs_np = (input_imgs * 0.5 + 0.5).cpu().numpy()
-                target_imgs_np = (target_imgs * 0.5 + 0.5).cpu().numpy()
-                fake_handwriting_np = (fake_handwriting * 0.5 + 0.5).cpu().numpy()
-
-                # Clean up background noise
-                for j in range(fake_handwriting_np.shape[0]):
-                    fake_handwriting_np[j, 0] = clean_background(fake_handwriting_np[j, 0] * 255) / 255
-
-                # Create figure
-                fig, axs = plt.subplots(3, 8, figsize=(20, 7))
-
-                # Plot images
-                for j in range(min(8, input_imgs_np.shape[0])):
-                    # Input image
-                    axs[0, j].imshow(input_imgs_np[j, 0], cmap='gray')
-                    axs[0, j].set_title('Input')
-                    axs[0, j].axis('off')
-
-                    # Target image
-                    axs[1, j].imshow(target_imgs_np[j, 0], cmap='gray')
-                    axs[1, j].set_title('Target')
-                    axs[1, j].axis('off')
-
-                    # Generated image
-                    axs[2, j].imshow(fake_handwriting_np[j, 0], cmap='gray')
-                    axs[2, j].set_title('Generated')
-                    axs[2, j].axis('off')
-
-                plt.tight_layout()
-                plt.savefig(os.path.join(output_dir, f"eval_samples_{i}.png"))
-                plt.close()
-
-    # Calculate average metrics
-    avg_mse = sum(mse_losses) / len(mse_losses) if mse_losses else 0
-    avg_mae = sum(mae_losses) / len(mae_losses) if mae_losses else 0
-
-    print(f"Evaluation Results:")
-    print(f"Average MSE: {avg_mse:.4f}")
-    print(f"Average MAE: {avg_mae:.4f}")
-
-    # Save metrics
-    with open(os.path.join(output_dir, "evaluation_metrics.txt"), "w") as f:
-        f.write(f"Average MSE: {avg_mse:.4f}\n")
-        f.write(f"Average MAE: {avg_mae:.4f}\n")
-
-    return avg_mse, avg_mae
-
-
-def main():
-    # Set paths
-    images_dir = "segmented_letters/output"  # Directory containing character images
-    output_dir = "handwriting_gan_output"
-
-    # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Train the model
-    print("Training the handwriting GAN...")
-    train_handwriting_gan(images_dir, output_dir, num_epochs=100)
-
-    # Generate handwriting from a sample text
-    print("Generating handwriting sample...")
-    sample_text = "Hello World!"
-    model_path = os.path.join(output_dir, "generator_final.pth")
-
-    handwritten_text_path = generate_handwriting(sample_text, images_dir, model_path, output_dir)
-    print(f"Handwritten text saved to: {handwritten_text_path}")
-
-    # Create test dataset for evaluation
-    print("Evaluating model...")
-    transform = transforms.Compose([
-        transforms.Resize((128, 128)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5])
-    ])
-    test_dataset = ImageDataset(images_dir, transform, augment=False)
-
-    evaluate_model(model_path, test_dataset, os.path.join(output_dir, "evaluation"))
-
-
+# Example usage
 if __name__ == "__main__":
-    main()
+    # Parameters
+    dataset_path = "prepare_dataset/letters"  # Path to your dataset
+    n_components = 4  # Number of hidden states
+    n_features = 10  # Number of features per window
+    pca_components = 8  # Use PCA for dimensionality reduction
+
+    # Create and train the recognizer
+    recognizer = AlphabetHMMRecognizer(n_components=n_components,
+                                       n_features=n_features,
+                                       pca_components=pca_components,
+                                       covariance_type="diag",
+                                       n_iter=100)
+
+    # Check if dataset directory exists
+    if not os.path.exists(dataset_path):
+        print(f"Dataset directory not found: {dataset_path}")
+        exit(1)
+
+    # Train with cross-validation
+    print("Training models...")
+    cv_metrics = recognizer.fit(dataset_path, k_fold=5)
+
+    # Print cross-validation results
+    print(f"Cross-validation accuracy: {cv_metrics['accuracy']:.4f}")
+
+    # Save the trained models
+    output_dir = "hmm_models"
+    print(f"Saving models to {output_dir}...")
+    recognizer.save_models(output_dir)
+
+    # Evaluate on test set (if available)
+    test_path = "prepare_dataset/test_letters"  # Path to test dataset
+    if os.path.exists(test_path):
+        print("Evaluating on test set...")
+        test_metrics = recognizer.evaluate(test_path)
+        print(f"Test accuracy: {test_metrics['accuracy']:.4f}")
+
+        # Print per-letter accuracy
+        print("\nPer-letter accuracy:")
+        for letter, acc in sorted(test_metrics['per_letter'].items()):
+            print(f"{letter}: {acc:.4f}")
+    else:
+        print(f"Test dataset not found: {test_path}")
+
+    # Demo: predict a single image
+    demo_img_path = os.path.join("prepare_dataset", "characters/13_d.png")
+    if os.path.exists(demo_img_path):
+        print(f"\nPredicting letter for {demo_img_path}...")
+        image = cv2.imread(demo_img_path, cv2.IMREAD_GRAYSCALE)
+        if image is not None:
+            pred_letter, scores = recognizer.predict(image)
+            print(f"Predicted letter: {pred_letter}")
+
+            # Display top 5 predictions
+            print("\nTop predictions:")
+            for letter, score in sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]:
+                print(f"{letter}: {score:.2f}")
+
+            # Display the image
+            plt.imshow(image, cmap='gray')
+            plt.title(f"Predicted: {pred_letter}")
+            plt.show()
+        else:
+            print(f"Could not read demo image: {demo_img_path}")
+    else:
+        print(f"Demo image not found: {demo_img_path}")

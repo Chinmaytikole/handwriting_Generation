@@ -1,13 +1,19 @@
 from rembg import remove
 from PIL import Image
+import io
 
-# Input and output file paths
-input_path = "handwriting_image_2.jpg"  # Replace with your image file
-output_path = "output_image.png"  # Output will be in PNG format to support transparency
+# Load input image
+input_path = 'generated_sentence.png'      # Replace with your image path
+output_path = 'output_image.png'    # Path to save image without background
 
-# Open the image and remove the background
-with Image.open(input_path) as img:
-    output = remove(img)
-    output.save(output_path)
+with open(input_path, 'rb') as inp_file:
+    input_data = inp_file.read()
 
-print(f"Background removed. Saved as {output_path}")
+# Remove background
+output_data = remove(input_data)
+
+# Save output image
+with open(output_path, 'wb') as out_file:
+    out_file.write(output_data)
+
+print("Background removed and saved to:", output_path)
